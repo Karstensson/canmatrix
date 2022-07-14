@@ -305,14 +305,14 @@ def dump(db, file, **options):
 
 # ########################### load ###############################
 
-def parse_value_table(value_name, value_str):
+def parse_value_table(value):
     # type: (str, str, int, typing.Callable) -> typing.Tuple
     value_table = dict()
-    if len(value_name) > 0:
-        if len(value_str.strip()) > 0:
-            # Value Table
-            value = int(float(value_str))
-            value_table[value] = value_name
+    if len(value) > 0:
+        tmp = value.split("\r\n")
+        for val in tmp:
+            data = val.split("=")
+            value_table[int(data[0])] = data[1]
     return value_table
 
 
@@ -497,7 +497,7 @@ def load(file, **options):
                 new_frame.add_signal(new_signal)
                 new_signal.add_comment(signal_comment)
 
-        value = str(sh.cell(row_num, index['valueTable']).value)
+        value_table = str(sh.cell(row_num, index['valueTable']).value)
         # .encode('utf-8')
         factor = sh.cell(row_num, index['factor']).value
         try:
@@ -513,7 +513,7 @@ def load(file, **options):
         new_signal.max = sh.cell(row_num, index['max']).value
         new_signal.offset = float_factory(sh.cell(row_num, index['offset']).value)
         new_signal.initial_value = float_factory(signal_default)
-        value_table = parse_value_table(value, float_factory)
+        value_table = parse_value_table(value_table)
 
         if value_table is not None:
             for value, name in value_table.items():
