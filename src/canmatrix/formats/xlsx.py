@@ -103,10 +103,6 @@ def write_excel_line(worksheet, row, col, row_array, style):
 def dump(db, filename, **options):
     # type: (canmatrix.CanMatrix, str, **str) -> None
     motorola_bit_format = options.get("xlsMotorolaBitFormat", "msbreverse")
-    values_in_seperate_lines = options.get("xlsValuesInSeperateLines", True)
-    additional_signal_columns = [x for x in options.get("additionalSignalAttributes", "").split(",") if x]
-    additional_frame_columns = [x for x in options.get("additionalFrameAttributes", "").split(",") if x]
-
 
     head_top = [
         'ID',
@@ -195,12 +191,6 @@ def dump(db, filename, **options):
     worksheet.set_column(9, 9, 21) # signal name
     worksheet.set_column(10, 10, 30) #Comment
 
-    for additional_col in additional_frame_columns:
-        row_array.append("frame." + additional_col)
-
-    for additional_col in additional_signal_columns:
-        row_array.append("signal." + additional_col)
-
     write_excel_line(worksheet, 0, 0, row_array, sty_header)
 
     if db.type == canmatrix.matrix_class.CAN:
@@ -248,57 +238,32 @@ def dump(db, filename, **options):
             # if not first Signal in Frame, set style
             if signal_style != sty_first_frame:
                 signal_style = sty_norm
-
-            # valuetable available?
-            if len(sig.values) > 0 and not values_in_seperate_lines:
-                value_style = signal_style
-                # iterate over values in valuetable
-                for val in sorted(sig.values.keys()):
-                    row_array = canmatrix.formats.xls_common.get_frame_info(db, frame)
-                    front_col = write_excel_line(worksheet, row, 0, row_array, frame_style)
-                    if frame_style != sty_first_frame:
-                        worksheet.set_row(row, None, None, {'level': 1})
-
-                    col = head_start
-                    col = write_ecu_matrix(ecu_list, sig, frame, worksheet, row, col, frame_style)
-
-                    # write Value
-                    (frontRow, back_row) = canmatrix.formats.xls_common.get_signal(db, frame, sig, motorola_bit_format)
-                    write_excel_line(worksheet, row, front_col, frontRow, signal_style)
-                    write_excel_line(worksheet, row, col, [val, sig.values[val]], value_style)
-                    write_excel_line(worksheet, row, col + 2, back_row, signal_style)
-
-                    # next row
-                    row += 1
-                    # set style to normal - without border
-                    signal_style = sty_white
-                    frame_style = sty_white
-                    value_style = sty_norm
-                # loop over values ends here
-            # no valuetable available
+            
+            row_array = canmatrix.formats.xls_common.get_frame_info(db, frame)
+            #HK#print(row_array)
+            front_col = write_excel_line(worksheet, row, 0, row_array, frame_style) # Prints frame information
+            if frame_style != sty_first_frame:
+                worksheet.set_row(row, None, None, {'level': 1})
+            col = head_start
+            col = write_ecu_matrix(ecu_list, sig, frame, worksheet, row, col, frame_style)
+            (frontRow, back_row) = canmatrix.formats.xls_common.get_signal(db, frame, sig, motorola_bit_format)
+            
+            write_excel_line(worksheet, row, front_col, frontRow, signal_style)
+            
+            tmpStr=""
+            if len(sig.values) > 0:
+                for key in sorted(sig.values):
+                    tmpStr += str(key) + "=" + sig.values[key] + "\r\n"
+                
+                back_row.insert(0,tmpStr[:-2]) 
             else:
-                row_array = canmatrix.formats.xls_common.get_frame_info(db, frame)
-                #HK#print(row_array)
-                front_col = write_excel_line(worksheet, row, 0, row_array, frame_style) # Prints frame information
-                if frame_style != sty_first_frame:
-                    worksheet.set_row(row, None, None, {'level': 1})
-
-                col = head_start
-                col = write_ecu_matrix(ecu_list, sig, frame, worksheet, row, col, frame_style)
-                (frontRow, back_row) = canmatrix.formats.xls_common.get_signal(db, frame, sig, motorola_bit_format)
-                
-                write_excel_line(worksheet, row, front_col, frontRow, signal_style)
-                
-                if len(sig.values) > 0:
-                    write_excel_line(worksheet, row, col, ["\n".join(["{}: {}".format(a,b) for (a,b) in sig.values.items()])], signal_style)
-                else:
-                    back_row.insert(0,"") #Insert empty line where Value table should have been
-                write_excel_line(worksheet, row, col, back_row, signal_style)
-                # next row
-                row += 1
-                # set style to normal - without border
-                signal_style = sty_white
-                frame_style = sty_white
+                back_row.insert(0,"") #Insert empty line where Value table should have been
+            write_excel_line(worksheet, row, col, back_row, signal_style)
+            # next row
+            row += 1
+            # set style to normal - without border
+            signal_style = sty_white
+            frame_style = sty_white
         # loop over signals ends here
     # loop over frames ends here
 
