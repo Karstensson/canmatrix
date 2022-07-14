@@ -44,19 +44,19 @@ def get_frame_info(db, frame):
 
     # frame-Name
     ret_array.append(frame.name)
-
+    ret_array.append(frame.size)
     ret_array.append(frame.effective_cycle_time)
 
     # determine send-type
     if "GenMsgSendType" in db.frame_defines:
         ret_array.append(frame.attribute("GenMsgSendType", db=db))
-        if "GenMsgDelayTime" in db.frame_defines:
-            ret_array.append(frame.attribute("GenMsgDelayTime", db=db))
-        else:
-            ret_array.append("")
+        #if "GenMsgDelayTime" in db.frame_defines:
+            #ret_array.append(frame.attribute("GenMsgDelayTime", db=db))
+        #else:
+         #   ret_array.append("")
     else:
         ret_array.append("")
-        ret_array.append("")
+        #ret_array.append("")
     return ret_array
 
 
@@ -71,16 +71,28 @@ def get_signal(db, frame, sig, motorola_bit_format):
     else:  # motorolaBitFormat == "lsb"
         start_bit = sig.get_startbit(bit_numbering=1, start_little=True)
 
-    # start byte
-    front_array.append(int(start_bit / 8) + 1)
     # start bit
-    front_array.append(start_bit % 8)
+    front_array.append(start_bit)
+    #size
+    front_array.append(sig.size) #Length
+    # eval byteorder (little_endian: intel == True / motorola == 0)
+    if sig.is_little_endian:
+        front_array.append("i")
+    else:
+        front_array.append("m")
+
+
+    # start-value of signal available
+    if(sig.initial_value <= 0.00005):
+        front_array.append(0)
+    else:
+        front_array.append(sig.initial_value)
     # signal name
     front_array.append(sig.name)
-
+    # write comment and size of signal in sheet
     # eval comment:
     comment = sig.comment if sig.comment else ""
-
+    front_array.append(comment)
     # eval multiplex-info
     if frame.is_complex_multiplexed:
         for signal in frame.signals:
@@ -92,43 +104,24 @@ def get_signal(db, frame, sig, motorola_bit_format):
         elif sig.multiplex is not None:
             comment = "Mode " + str(sig.multiplex) + ":" + comment
 
-    # write comment and size of signal in sheet
-    front_array.append(comment)
-    front_array.append(sig.size)
 
-    # start-value of signal available
-    front_array.append(sig.initial_value)
 
     # SNA-value of signal available
-    if "GenSigSNA" in db.signal_defines:
-        sna = sig.attribute("GenSigSNA", db=db)
-        if sna is not None:
-            sna = sna[1:-1]
-        front_array.append(sna)
-    # no SNA-value of signal available / just for correct style:
-    else:
-        front_array.append(" ")
-
-    # eval byteorder (little_endian: intel == True / motorola == 0)
-    if sig.is_little_endian:
-        front_array.append("i")
-    else:
-        front_array.append("m")
+    # Disabled support for not available values for now, since it is not needed
+    #HK#if "GenSigSNA" in db.signal_defines:
+    #HK#    sna = sig.attribute("GenSigSNA", db=db)
+    #HK#    if sna is not None:
+    #HK#        sna = sna[1:-1]
+    #HK#    front_array.append(sna)
+    #HK# no SNA-value of signal available / just for correct style:
+    #HKelse:
+    #HK    front_array.append(" ")
 
     # is a unit defined for signal?
-    if sig.unit.strip():
-        # factor not 1.0 ?
-        if float(sig.factor) != 1:
-            back_array.append("%g" % float(sig.factor) + "  " + sig.unit)
-        # factor == 1.0
-        else:
-            back_array.append(sig.unit)
-    # no unit defined
-    else:
-        # factor not 1.0 ?
-        if float(sig.factor) != 1:
-            back_array.append("%g -" % float(sig.factor))
-        # factor == 1.0
-        else:
-            back_array.append("")
+    back_array.append(sig.min)
+    back_array.append(sig.max)
+    back_array.append(sig.factor)
+    back_array.append(sig.offset)
+    back_array.append(sig.is_signed)
+    back_array.append(sig.unit)
     return front_array, back_array

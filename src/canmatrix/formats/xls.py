@@ -36,7 +36,7 @@ import xlwt
 
 import canmatrix
 import canmatrix.formats.xls_common
-
+import sys
 logger = logging.getLogger(__name__)
 default_float_factory = decimal.Decimal
 
@@ -305,26 +305,15 @@ def dump(db, file, **options):
 
 # ########################### load ###############################
 
-def parse_value_name_column(value_name, value_str, signal_size, float_factory):
+def parse_value_table(value_name, value_str):
     # type: (str, str, int, typing.Callable) -> typing.Tuple
-    mini = maxi = offset = None  # type: typing.Any
     value_table = dict()
-    if ".." in value_name:
-        (mini, maxi) = value_name.strip().split("..")
-        mini = float_factory(mini)
-        maxi = float_factory(maxi)
-        offset = mini
-
-    elif len(value_name) > 0:
+    if len(value_name) > 0:
         if len(value_str.strip()) > 0:
             # Value Table
             value = int(float(value_str))
             value_table[value] = value_name
-        maxi = pow(2, signal_size) - 1
-        maxi = float_factory(maxi)
-        mini = 0
-        offset = 0
-    return mini, maxi, offset, value_table
+    return value_table
 
 
 def read_additional_signal_attributes(signal, attribute_name, attribute_value):
@@ -369,41 +358,41 @@ def load(file, **options):
             index['frameName'] = i
         elif "Cycle" in value:
             index['cycle'] = i
-        elif "Launch Type" in value:
-            index['launchType'] = i
-        elif "Launch Parameter" in value:
-            index['launchParam'] = i
-        elif "Signal Byte No." in value:
-            index['startbyte'] = i
-        elif "Signal Bit No." in value:
+        elif "Tx Type" in value:
+            index['tx_type'] = i
+        elif "DLC" in value:
+            index['dlc'] = i            
+        elif "Start Bit" in value:
             index['startbit'] = i
         elif "Signal Name" in value:
             index['signalName'] = i
-        elif "Signal Function" in value:
+        elif "Signal Comment" in value:
             index['signalComment'] = i
         elif "Signal Length" in value:
             index['signalLength'] = i
-        elif "Signal Default" in value:
+        elif "Signal Init" in value:
             index['signalDefault'] = i
-        elif "Signal Not Ava" in value:
-            index['signalSNA'] = i
-        elif "Value" in value:
-            index['Value'] = i
-        elif "Name / Phys" in value:
-            index['ValueName'] = i
-        elif "Function /" in value:
-            index['function'] = i
+        elif "Min" in value:
+            index['min'] = i      
+        elif "Max" in value:
+            index['max'] = i            
+        elif "Factor" in value:
+            index['factor'] = i
+        elif "Offset" in value:
+            index['offset'] = i
+        elif "Unit" in value:
+            index['unit'] = i                                                            
         elif "Byteorder" in value:
             index['byteorder'] = i
-        else:
-            if 'Value' in index and i > index['Value']:
-                additional_inputs[i] = value
+        elif "Signed" in value:
+            index['signed'] = i                                   
+        elif 'Value' in value:
+                index['valueTable'] = i            
 
-    if "byteorder" in index:
-        index['ECUstart'] = index['byteorder'] + 1
-    else:
-        index['ECUstart'] = index['signalSNA'] + 1
-    index['ECUend'] = index['Value']
+                
+
+    index['ECUstart'] = index['signalComment'] + 1
+    index['ECUend'] = index['valueTable']
 
     # ECUs:
     for x in range(index['ECUstart'], index['ECUend']):
@@ -424,14 +413,8 @@ def load(file, **options):
             frame_id = sh.cell(row_num, index['ID']).value
             frame_name = sh.cell(row_num, index['frameName']).value
             cycle_time = sh.cell(row_num, index['cycle']).value
-            launch_type = sh.cell(row_num, index['launchType']).value
-            dlc = 8
-            launch_param = sh.cell(row_num, index['launchParam']).value
-            try:
-                launch_param = str(int(launch_param))
-            except:
-                launch_param = "0"
-
+            launch_type = sh.cell(row_num, index['tx_type']).value
+            dlc = sh.cell(row_num, index['dlc']).value
             new_frame = canmatrix.Frame(frame_name, size=dlc)
             if frame_id.endswith("xh"):
                 new_frame.arbitration_id = canmatrix.ArbitrationId(int(frame_id[:-2], 16), extended=True)
@@ -453,26 +436,18 @@ def load(file, **options):
                 cycle_time = 0
             new_frame.cycle_time = cycle_time
 
-            for additional_index in additional_inputs:
-                if "frame" in additional_inputs[additional_index]:
-                    command_str = additional_inputs[additional_index].replace("frame", "new_frame")
-                    command_str += "="
-                    command_str += str(sh.cell(row_num, additional_index).value)
-                    exec(command_str)
-
         # new signal detected
         if sh.cell(row_num, index['signalName']).value != signal_name \
                 and len(sh.cell(row_num, index['signalName']).value) > 0:
             # new Signal
             receiver = []
-            start_byte = int(sh.cell(row_num, index['startbyte']).value)
+            ##HK##start_byte = int(sh.cell(row_num, index['startbyte']).value)
             start_bit = int(sh.cell(row_num, index['startbit']).value)
             signal_name = sh.cell(row_num, index['signalName']).value.strip()
             signal_comment = sh.cell(
                 row_num, index['signalComment']).value.strip()
             signal_length = int(sh.cell(row_num, index['signalLength']).value)
             signal_default = sh.cell(row_num, index['signalDefault']).value
-            signal_sna = sh.cell(row_num, index['signalSNA']).value
             multiplex = None  # type: typing.Union[str, int, None]
             if signal_comment.startswith('Mode Signal:'):
                 multiplex = 'Multiplexor'
@@ -501,7 +476,7 @@ def load(file, **options):
                         receiver.append(sh.cell(0, x).value.strip())
                 new_signal = canmatrix.Signal(
                     signal_name,
-                    start_bit=(start_byte - 1) * 8 + start_bit,
+                    start_bit=start_bit,
                     size=int(signal_length),
                     is_little_endian=is_little_endian,
                     is_signed=is_signed,
@@ -511,61 +486,35 @@ def load(file, **options):
                 if not is_little_endian:
                     # motorola
                     if motorola_bit_format == "msb":
-                        new_signal.set_startbit((start_byte - 1) * 8 + start_bit, bitNumbering=1)
+                        new_signal.set_startbit(start_bit, bitNumbering=1)
                     elif motorola_bit_format == "msbreverse":
-                        new_signal.set_startbit((start_byte - 1) * 8 + start_bit)
+                        new_signal.set_startbit(start_bit)
                     else:  # motorola_bit_format == "lsb"
-                        new_signal.set_startbit(
-                            (start_byte - 1) * 8 + start_bit,
+                        new_signal.set_startbit(start_bit,
                             bitNumbering=1,
                             startLittle=True)
 
-                for additional_index in additional_inputs:  # todo explain this possibly dangerous code with eval
-                    if "signal" in additional_inputs[additional_index]:
-                        read_additional_signal_attributes(new_signal, additional_inputs[additional_index], sh.cell(row_num, additional_index).value)
-
                 new_frame.add_signal(new_signal)
                 new_signal.add_comment(signal_comment)
-                function = sh.cell(row_num, index['function']).value
 
-        value = str(sh.cell(row_num, index['Value']).value)
-        value_name = sh.cell(row_num, index['ValueName']).value
-
-        if value_name == 0:
-            value_name = "0"
-        elif value_name == 1:
-            value_name = "1"
+        value = str(sh.cell(row_num, index['valueTable']).value)
         # .encode('utf-8')
+        factor = sh.cell(row_num, index['factor']).value
+        try:
+            new_signal.factor = float_factory(factor)
+        except:
+            logger.warning(
+                "Some error occurred while decoding scale of Signal %s: '%s'",
+                signal_name, factor)
+            new_signal.factor = 1
+            
+        new_signal.unit = str(sh.cell(row_num, index['unit']).value)
+        new_signal.min = sh.cell(row_num, index['min']).value
+        new_signal.max = sh.cell(row_num, index['max']).value
+        new_signal.offset = float_factory(sh.cell(row_num, index['offset']).value)
+        new_signal.initial_value = float_factory(signal_default)
+        value_table = parse_value_table(value, float_factory)
 
-        unit = ""
-
-        factor = sh.cell(row_num, index['function']).value
-        if isinstance(factor, past.builtins.basestring):
-            factor = factor.strip()
-            if " " in factor and factor[0].isdigit():
-                (factor, unit) = factor.strip().split(" ", 1)
-                factor = factor.strip()
-                unit = unit.strip()
-                new_signal.unit = unit
-                try:
-                    new_signal.factor = float_factory(factor)
-                except:
-                    logger.warning(
-                        "Some error occurred while decoding scale of Signal %s: '%s'",
-                        signal_name,
-                        sh.cell(row_num, index['function']).value)
-            else:
-                unit = factor.strip()
-                new_signal.unit = unit
-                new_signal.factor = 1
-
-        (mini, maxi, offset, value_table) = parse_value_name_column(value_name, value, new_signal.size, float_factory)
-        if new_signal.min is None:
-            new_signal.min = mini
-        if new_signal.max is None:
-            new_signal.max = maxi
-        if new_signal.offset is None:
-            new_signal.offset = offset
         if value_table is not None:
             for value, name in value_table.items():
                 new_signal.add_values(value, name)

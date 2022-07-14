@@ -30,7 +30,7 @@ import typing
 from builtins import *
 
 import xlsxwriter
-
+import sys
 import canmatrix
 import canmatrix.formats.xls_common
 
@@ -111,18 +111,17 @@ def dump(db, filename, **options):
     head_top = [
         'ID',
         'Frame Name',
+        'DLC',
         'Cycle Time [ms]',
-        'Launch Type',
-        'Launch Parameter',
-        'Signal Byte No.',
-        'Signal Bit No.',
-        'Signal Name',
-        'Signal Function',
+        'Tx Type',
+        'Start Bit',
         'Signal Length [Bit]',
-        'Signal Default',
-        'Signal Not Available',
-        'Byteorder']
-    head_tail = ['Value', 'Name / Phys. Range', 'Function / Increment Unit']
+        'Byteorder',
+        'Signal Init',
+        'Signal Name',
+        'Signal Comment']
+        
+    head_tail = ['Value Table', 'Min', 'Max', 'Factor', 'Offset', 'Signed', 'Unit']
 
     workbook = xlsxwriter.Workbook(filename)
     # ws_name = os.path.basename(filename).replace('.xlsx', '')
@@ -138,6 +137,7 @@ def dump(db, filename, **options):
     global sty_first_frame
     sty_first_frame = workbook.add_format({'font_name': 'Verdana',
                                            'font_size': 8,
+                                           'align': 'left',
                                            'font_color': 'black', 'top': 1})
     global sty_white
     sty_white = workbook.add_format({'font_name': 'Verdana',
@@ -146,6 +146,7 @@ def dump(db, filename, **options):
     global sty_norm
     sty_norm = workbook.add_format({'font_name': 'Verdana',
                                     'font_size': 8,
+                                    'align' : 'left',
                                     'font_color': 'black'})
 
     # ECUMatrix-Styles
@@ -181,11 +182,18 @@ def dump(db, filename, **options):
     additional_frame_start = len(row_array)
 
     # set width of selected Cols
-    worksheet.set_column(0, 0, 3.57)
+    worksheet.set_column(0, 0, 3.8)
     worksheet.set_column(1, 1, 21)
-    worksheet.set_column(3, 3, 12.29)
-    worksheet.set_column(7, 7, 21)
-    worksheet.set_column(8, 8, 30)
+    worksheet.set_column(2, 2, 2.5) #DLC
+    worksheet.set_column(3, 3, 2.5) # cycle time
+    worksheet.set_column(4, 4, 8.0) # send type
+    worksheet.set_column(5, 5, 2.5) # Start bit
+    worksheet.set_column(5, 5, 2.5) # signal length
+    worksheet.set_column(6, 6, 2.5) # byte order
+    worksheet.set_column(7, 7, 2.5) # signal init
+    worksheet.set_column(8, 8, 2.5)
+    worksheet.set_column(9, 9, 21) # signal name
+    worksheet.set_column(10, 10, 30) #Comment
 
     for additional_col in additional_frame_columns:
         row_array.append("frame." + additional_col)
@@ -222,7 +230,6 @@ def dump(db, filename, **options):
         # set style for first line with border
         signal_style = sty_first_frame
 
-        additional_frame_info = [frame.attribute(additional, default="") for additional in additional_frame_columns]
 
         row_array = []
         if len(sig_hash) == 0:
@@ -231,10 +238,6 @@ def dump(db, filename, **options):
                 row_array.append("")
             temp_col = write_excel_line(worksheet, row, 0, row_array, frame_style)
             temp_col = write_ecu_matrix(ecu_list, None, frame, worksheet, row, temp_col, frame_style)
-
-            row_array = ["" for _ in range(temp_col, additional_frame_start)]
-            row_array += additional_frame_info
-            row_array += ["" for _ in additional_signal_columns]
             write_excel_line(worksheet, row, temp_col, row_array, frame_style)
             row += 1
 
@@ -262,16 +265,9 @@ def dump(db, filename, **options):
                     # write Value
                     (frontRow, back_row) = canmatrix.formats.xls_common.get_signal(db, frame, sig, motorola_bit_format)
                     write_excel_line(worksheet, row, front_col, frontRow, signal_style)
-                    back_row += additional_frame_info
-                    for item in additional_signal_columns:
-                        temp = getattr(sig, item, "")
-                        back_row.append(temp)
-
-
-                    write_excel_line(worksheet, row, col + 2, back_row, signal_style)
                     write_excel_line(worksheet, row, col, [val, sig.values[val]], value_style)
+                    write_excel_line(worksheet, row, col + 2, back_row, signal_style)
 
-                    # no min/max here, because min/max has same col as values...
                     # next row
                     row += 1
                     # set style to normal - without border
@@ -282,29 +278,22 @@ def dump(db, filename, **options):
             # no valuetable available
             else:
                 row_array = canmatrix.formats.xls_common.get_frame_info(db, frame)
-                front_col = write_excel_line(worksheet, row, 0, row_array, frame_style)
+                #HK#print(row_array)
+                front_col = write_excel_line(worksheet, row, 0, row_array, frame_style) # Prints frame information
                 if frame_style != sty_first_frame:
                     worksheet.set_row(row, None, None, {'level': 1})
 
                 col = head_start
                 col = write_ecu_matrix(ecu_list, sig, frame, worksheet, row, col, frame_style)
                 (frontRow, back_row) = canmatrix.formats.xls_common.get_signal(db, frame, sig, motorola_bit_format)
+                
                 write_excel_line(worksheet, row, front_col, frontRow, signal_style)
-
-                if float(sig.min) != 0 or float(sig.max) != 1.0:
-                    back_row.insert(0, str("%g..%g" % (sig.min, sig.max)))  # type: ignore
-                else:
-                    back_row.insert(0, "")
-                back_row.insert(0, "")
-
-                back_row += additional_frame_info
-                for item in additional_signal_columns:
-                    temp = getattr(sig, item, "")
-                    back_row.append(temp)
-
-                write_excel_line(worksheet, row, col, back_row, signal_style)
+                
                 if len(sig.values) > 0:
                     write_excel_line(worksheet, row, col, ["\n".join(["{}: {}".format(a,b) for (a,b) in sig.values.items()])], signal_style)
+                else:
+                    back_row.insert(0,"") #Insert empty line where Value table should have been
+                write_excel_line(worksheet, row, col, back_row, signal_style)
                 # next row
                 row += 1
                 # set style to normal - without border
@@ -399,10 +388,11 @@ def load(filename, **options):
 
     sheet = read_xlsx(filename, sheet=1, header=True)
     db = canmatrix.CanMatrix()
-    all_letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    all_letters = 'ABCDEFGHIJKLMNOPQRS'
     letter_index = list(all_letters)
     letter_index += ["%s%s" % (a, b) for a in all_letters for b in all_letters]
-
+    print(letter_index)
+    sys.exit()
     # Defines not imported...
     db.add_frame_defines("GenMsgDelayTime", 'INT 0 65535')
     db.add_frame_defines("GenMsgCycleTimeActive", 'INT 0 65535')
@@ -423,7 +413,7 @@ def load(filename, **options):
                 ecu_start = letter_index.index(key) + 1
 
     for key in sheet[0]:
-        if sheet[0][key].strip() == 'Value':
+        if sheet[0][key].strip() == 'Value Table':
             ecu_end = letter_index.index(key)
 
     # ECUs:
@@ -447,7 +437,7 @@ def load(filename, **options):
             frame_id = row['ID']
             frame_name = row['Frame Name']
             cycle_time = get_if_possible(row, 'Cycle Time [ms]', '0')
-            launch_type = get_if_possible(row, 'Launch Type')
+            launch_type = get_if_possible(row, 'Tx Type')
             dlc = 8
             # launch_param = get_if_possible(row, 'Launch Parameter', '0')
             # launch_param = str(int(launch_param))
@@ -471,10 +461,10 @@ def load(filename, **options):
         # new signal detected
         if 'Signal Name' in row and row['Signal Name'] != signal_name:
             receiver = []  # type: typing.List[str]
-            start_byte = int(row["Signal Byte No."])
-            start_bit = int(row['Signal Bit No.'])
+            start_byte = int(row["Start Byte"])
+            start_bit = int(row['Start Bit'])
             signal_name = row['Signal Name']
-            signal_comment = get_if_possible(row, 'Signal Function')
+            signal_comment = get_if_possible(row, 'Signal Comment')
             signal_length = int(row['Signal Length [Bit]'])
             # signal_default = get_if_possible(row, 'Signal Default')
             # signal_sna = get_if_possible(row, 'Signal Not Available')
